@@ -48,7 +48,7 @@ def train(func, timeout=100.0):
 
 
 
-def evaluate(model, Bot, Environment, runs=10, seed=None, debug=False):
+def evaluate(model, Bot, Environment, runs=10, seed=None, debug=False, progress=False):
     """Evaluate a model with the given number of runs.
 
     Parameters
@@ -118,6 +118,8 @@ def evaluate(model, Bot, Environment, runs=10, seed=None, debug=False):
     # print(f"Seeds : {seeds}")
 
     for i in range(runs):
+        if progress:
+            print('Run', i+1, 'of', runs)
         np.random.seed(seeds[i])
         environment = Environment()
 
