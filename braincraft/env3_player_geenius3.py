@@ -183,7 +183,7 @@ def geenius_trainer():
     while True:
         print('\nGeneration', gen)
         generation = []
-        r = (np.tanh(-learning_rate)+1)/2 #(15 - np.maximum(score_best, 1))/15
+        r = 0.1+(np.tanh(-2*learning_rate)+1)/2 #(15 - np.maximum(score_best, 1))/15
         mc = 1.0
         print('\nMutation rate:', r)
         for i in range(populationSize):
@@ -218,7 +218,7 @@ def geenius_trainer():
             yield model_best.getComponents()
 
         # Sort by mean score, descending
-        generation = sorted(generation, reverse=True, key=lambda m:m.score)
+        generation.sort(reverse=True, key=lambda m:m.score)
         survivors = [model for model in generation[:numSurvivors]]
         # Assign fitness
         selectionPressure = 2
