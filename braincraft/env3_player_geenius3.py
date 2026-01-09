@@ -11,7 +11,7 @@ import time, traceback
 class QuickBot(Bot):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.energy = 0.5
+        self.energy = 0.6
 
 def identity(x):
     return x
@@ -87,7 +87,7 @@ class Model:
         self.score = score_mean
     def __str__(self):
         with np.printoptions(precision=2, floatmode='fixed', suppress=True):
-            output = f"Win: {self.Win[self.Win != 0]}\nW:   {self.W[self.W != 0]}\nWout: {self.Wout[self.Wout != 0]}"
+            output = f"Win:  {self.Win[self.Win != 0]}\nW:    {self.W[self.W != 0]}\nWout: {self.Wout[self.Wout != 0]}"
         return output
     def randomize(self):
         # self.warmup = np.random.randint(0, 10)
@@ -97,8 +97,9 @@ class Model:
         self.leak = 0.85
 
         amplitude = 1
+        weightBias = 0.75
 
-        numNeuronsPerSide = 2
+        numNeuronsPerSide = 4
         numSideNeurons = 2*numNeuronsPerSide
         leftNeuronsIdx = list(range(0, numNeuronsPerSide))
         rightNeuronsIdx = list(range(numNeuronsPerSide, numSideNeurons))
@@ -109,9 +110,9 @@ class Model:
         # Initialize zeroed weight matrix
         self.Win  = np.zeros((n, 2*p+3))
         # Leftmost distance input to left neurons
-        self.Win[leftNeuronsIdx, leftCameraInputs] = 0.1 #amplitude*np.random.uniform(-1, 1, size=numNeuronsPerSide)
+        self.Win[leftNeuronsIdx, leftCameraInputs] = amplitude*np.random.uniform(-1, 1, size=numNeuronsPerSide)
         # Rightmost distance input to neuron 1
-        self.Win[rightNeuronsIdx, rightCameraInputs] = 0.1 #amplitude*np.random.uniform(-1, 1, size=numNeuronsPerSide)
+        self.Win[rightNeuronsIdx, rightCameraInputs] = amplitude*np.random.uniform(-1, 1, size=numNeuronsPerSide)
         # Add hit, energy, and bias connections
         # self.Win[:numSideNeurons, 2*p:2*p+3] = amplitude*np.random.uniform(-1, 1, size=[numSideNeurons, 3])
 
@@ -119,9 +120,9 @@ class Model:
         # Randomize internal connections
         self.W = np.zeros((n, n))
         # # Interconnect left neurons
-        self.W[0:numNeuronsPerSide, 0:numNeuronsPerSide] = amplitude*np.random.uniform(-1, 1, size=[numNeuronsPerSide, numNeuronsPerSide])
+        # self.W[0:numNeuronsPerSide, 0:numNeuronsPerSide] = amplitude*np.random.uniform(-1+weightBias, 1+weightBias, size=[numNeuronsPerSide, numNeuronsPerSide])
         # # Interconnect right neurons
-        self.W[numNeuronsPerSide:numSideNeurons, numNeuronsPerSide:numSideNeurons] = amplitude*np.random.uniform(-1, 1, size=[numNeuronsPerSide, numNeuronsPerSide])
+        # self.W[numNeuronsPerSide:numSideNeurons, numNeuronsPerSide:numSideNeurons] = amplitude*np.random.uniform(-1+weightBias, 1+weightBias, size=[numNeuronsPerSide, numNeuronsPerSide])
         # Sparse connect left to right
         # self.W[leftNeuronsIdx, rightNeuronsIdx] = amplitude*np.random.uniform(-1, 1, size=[1, numNeuronsPerSide])
         # Sparse connect right to left
@@ -140,11 +141,13 @@ class Model:
         ### OUTPUT WEIGHTS
         # Initialize zeroed output weights
         self.Wout = np.zeros((1,n))
-        self.Wout[:, :numSideNeurons] = amplitude*np.random.uniform(-1, 1, size=numSideNeurons)
+        self.Wout[:, :numSideNeurons] = amplitude*np.random.uniform(-1+weightBias, 1+weightBias, size=numSideNeurons)
 
 def mutateNonzeroMatrix(matrix, changeFactors):
     numChanges = len(changeFactors)
     nonzeros = matrix[matrix != 0]
+    if numChanges == 0 or len(nonzeros) == 0:
+        return
     mutateIdx = np.random.choice(range(len(nonzeros)), size=numChanges, replace=False)
     nonzeros[mutateIdx] += changeFactors
     matrix[matrix != 0] = nonzeros
@@ -161,7 +164,7 @@ def crossoverNonzeroMatrices(matrix1, matrix2):
 def geenius_trainer():
     """Train a geenius"""
     # s = getSeed()
-    s = 1
+    s = 2
     np.random.seed(s)
 
     # Random search for best model for 5 tries  (not efficient at all)
@@ -173,9 +176,16 @@ def geenius_trainer():
 
     survivors = []
     gen = 0
+
+    last_gen_best = 0
+    learning_rate = 0
+
     while True:
-        print('\ngeneration', gen)
+        print('\nGeneration', gen)
         generation = []
+        r = (np.tanh(-learning_rate)+1)/2 #(15 - np.maximum(score_best, 1))/15
+        mc = 1.0
+        print('\nMutation rate:', r)
         for i in range(populationSize):
             # Evaluate model on 3 runs
             if len(survivors) == 0:
@@ -191,8 +201,7 @@ def geenius_trainer():
                     weights = np.array([m.fitness for m in survivors])
                     weights = weights / np.sum(weights)
                     parent1, parent2 = np.random.choice(survivors, p=weights, size=2)
-                    r = np.random.uniform(0.20, 0.40) #(15 - np.maximum(score_best, 1))/15
-                    child = parent1.mate(parent2).mutate(changeRate=r, maxChange=1.0)
+                    child = parent1.mate(parent2).mutate(changeRate=r, maxChange=mc)
 
             child.test()
             generation.append(child)
@@ -214,7 +223,10 @@ def geenius_trainer():
         # Assign fitness
         selectionPressure = 2
         [model.setFitness((numSurvivors - k)*selectionPressure) for k, model in enumerate(survivors)]
-        print('\nGeneration best score:', max([m.score for m in generation]))
+        gen_best = max([m.score for m in generation])
+        learning_rate = gen_best - last_gen_best
+        print('\nGeneration best score:', gen_best, 'learning rate=', learning_rate)
+        last_gen_best = gen_best
 
         gen = gen + 1
 
